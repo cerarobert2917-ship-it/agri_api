@@ -1,0 +1,12 @@
+# MGA SECRET — huwag i-commit
+.env
+
+# User-uploaded files (private data)
+uploads/avatars/*
+uploads/claims/*
+uploads/stores/*
+!uploads/.htaccess
+
+.DS_Store
+.idea/
+.vscode/
