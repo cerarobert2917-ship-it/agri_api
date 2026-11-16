@@ -15,7 +15,7 @@ class OwnerController
     private function requireStore(int $uid): array
     {
         $s = $this->myStoreRow($uid);
-        if (!$s) respond(false, 'Wala ka pang approved na tindahan.', null, 403);
+        if (!$s) respond(false, 'You do not have an approved store yet.', null, 403);
         return $s;
     }
 
@@ -42,9 +42,9 @@ class OwnerController
         if (!$ext) respond(false, "JPEG o PNG lang ang tinatanggap ($label).", null, 422);
 
         $dir = dirname(__DIR__) . '/uploads/claims';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) respond(false, 'Hindi ma-save ang larawan.', null, 500);
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) respond(false, 'Could not save the image.', null, 500);
         $name = bin2hex(random_bytes(16)) . '.' . $ext;
-        if (file_put_contents("$dir/$name", $bin) === false) respond(false, 'Hindi ma-save ang larawan.', null, 500);
+        if (file_put_contents("$dir/$name", $bin) === false) respond(false, 'Could not save the image.', null, 500);
         return $name;
     }
 
@@ -54,16 +54,16 @@ class OwnerController
         $u = Auth::user(['store_owner']);
         $d = body();
         $storeId = (int) ($d['store_id'] ?? 0);
-        if ($storeId <= 0) respond(false, 'Pumili ng store.', null, 422);
-        if (empty($d['permit_image']) || empty($d['storefront_image'])) respond(false, 'Kailangan ang permit/ID at larawan ng tindahan.', null, 422);
+        if ($storeId <= 0) respond(false, 'Please choose a store.', null, 422);
+        if (empty($d['permit_image']) || empty($d['storefront_image'])) respond(false, 'A permit/ID and a storefront photo are required.', null, 422);
 
         // may pending o approved na ba ang owner?
         $chk = $this->db->prepare("SELECT status FROM store_claims WHERE owner_id = ? AND status IN ('pending','approved') LIMIT 1");
         $chk->execute([$u['id']]);
         if ($row = $chk->fetch()) {
-            respond(false, $row['status'] === 'pending' ? 'May pending ka nang claim.' : 'May approved ka nang store.', null, 409);
+            respond(false, $row['status'] === 'pending' ? 'You already have a pending claim.' : 'You already have an approved store.', null, 409);
         }
-        if ($this->myStoreRow($u['id'])) respond(false, 'May store ka na.', null, 409);
+        if ($this->myStoreRow($u['id'])) respond(false, 'You already have a store.', null, 409);
 
         $permit = $this->saveImage((string) $d['permit_image'], 'permit/ID');
         $front = $this->saveImage((string) $d['storefront_image'], 'storefront');
@@ -73,11 +73,11 @@ class OwnerController
             $s = $this->db->prepare('SELECT id, name, owner_id FROM stores WHERE id = ? FOR UPDATE');
             $s->execute([$storeId]);
             $store = $s->fetch();
-            if (!$store) throw new RuntimeException('Hindi mahanap ang store.');
-            if ($store['owner_id'] !== null) throw new RuntimeException('May owner na ang store na ito.');
+            if (!$store) throw new RuntimeException('Store not found.');
+            if ($store['owner_id'] !== null) throw new RuntimeException('This store already has an owner.');
             $p = $this->db->prepare("SELECT 1 FROM store_claims WHERE store_id = ? AND status = 'pending' LIMIT 1");
             $p->execute([$storeId]);
-            if ($p->fetch()) throw new RuntimeException('May naka-pending nang claim sa store na ito.');
+            if ($p->fetch()) throw new RuntimeException('This store already has a pending claim.');
 
             $this->db->prepare("INSERT INTO store_claims (store_id, owner_id, permit_image, storefront_image) VALUES (?,?,?,?)")
                 ->execute([$storeId, $u['id'], $permit, $front]);
@@ -99,7 +99,7 @@ class OwnerController
             if ($this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
-        respond(true, 'Naipadala ang claim. Hintayin ang approval ng admin.', null, 201);
+        respond(true, 'Claim submitted. Please wait for the admin to approve it.', null, 201);
     }
 
     /** GET /owner/store — pinakabagong claim ng owner (o approved store). null kung wala. */
@@ -133,17 +133,17 @@ class OwnerController
         $store = $this->requireStore($u['id']);
         $d = body();
         $contact = trim((string) ($d['contact_number'] ?? ''));
-        if ($contact !== '' && !validPhone($contact)) respond(false, 'Maling contact number.', null, 422);
+        if ($contact !== '' && !validPhone($contact)) respond(false, 'Invalid contact number.', null, 422);
         $this->db->prepare('UPDATE stores SET description=?, contact_number=?, opening_hours=? WHERE id=?')
             ->execute([trim((string) ($d['description'] ?? '')), $contact, trim((string) ($d['opening_hours'] ?? '')), $store['id']]);
-        respond(true, 'Na-save ang tindahan.');
+        respond(true, 'Store saved.');
     }
 
     public function products(): void
     {
         $u = Auth::user(['store_owner']);
         $store = $this->myStoreRow($u['id']);
-        if (!$store) respond(true, 'Wala pang approved na tindahan.', []);
+        if (!$store) respond(true, 'No approved store yet.', []);
         $st = $this->db->prepare('SELECT p.*, c.name AS category_name FROM products p JOIN categories c ON c.id = p.category_id WHERE p.store_id = ? ORDER BY p.name');
         $st->execute([$store['id']]);
         respond(true, 'OK', $st->fetchAll());
@@ -201,7 +201,7 @@ class OwnerController
         $u = Auth::user(['store_owner']);
         $store = $this->requireStore($u['id']);
         $d = body();
-        if (empty($d['name']) || !isset($d['price']) || $d['price'] < 0) respond(false, 'Ilagay ang pangalan at tamang presyo.', null, 422);
+        if (empty($d['name']) || !isset($d['price']) || $d['price'] < 0) respond(false, 'Please enter a name and a valid price.', null, 422);
 
         $vals = [$d['category_id'] ?? 1, $d['name'], $d['brand'] ?? '', $d['unit'] ?? 'piece',
                  (float) $d['price'], (int) ($d['stock_quantity'] ?? 0), (int) ($d['low_stock_threshold'] ?? 5)];
@@ -216,7 +216,7 @@ class OwnerController
             $this->db->prepare('INSERT INTO products (category_id, name, brand, unit, price, stock_quantity, low_stock_threshold, store_id)
                                 VALUES (?,?,?,?,?,?,?,?)')->execute([...$vals, $store['id']]);
         }
-        respond(true, 'Na-save ang produkto.');
+        respond(true, 'Product saved.');
     }
 
     public function quickUpdate(): void
@@ -230,7 +230,7 @@ class OwnerController
                             is_available = COALESCE(?, is_available) WHERE id = ? AND store_id = ?')
             ->execute([$d['price'] ?? null, $d['stock_quantity'] ?? null, $d['is_available'] ?? null, $pid, $store['id']]);
         $this->logChange($pid, (int) $store['id'], $before, $this->productSnapshot($pid, (int) $store['id']));
-        respond(true, 'Na-update.');
+        respond(true, 'Updated.');
     }
 
     public function deleteProduct(): void
@@ -238,6 +238,6 @@ class OwnerController
         $u = Auth::user(['store_owner']);
         $store = $this->requireStore($u['id']);
         $this->db->prepare('DELETE FROM products WHERE id = ? AND store_id = ?')->execute([body()['id'] ?? 0, $store['id']]);
-        respond(true, 'Natanggal ang produkto.');
+        respond(true, 'Product removed.');
     }
 }

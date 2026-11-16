@@ -24,7 +24,6 @@ $routes = [
     'GET /auth/me'           => ['AuthController', 'me'],
     'GET /auth/profile'      => ['AuthController', 'profile'],
     'POST /auth/profile'     => ['AuthController', 'updateProfile'],
-    'POST /auth/avatar'      => ['AuthController', 'updateAvatar'],
     'POST /auth/change-password' => ['AuthController', 'changePassword'],
     'GET /categories'        => ['ProductController', 'categories'],
     'GET /products/search'   => ['ProductController', 'search'],
@@ -61,9 +60,9 @@ $routes = [
 
 try {
     $handler = $routes["$method $path"] ?? null;
-    if (!$handler) respond(false, 'Hindi mahanap ang endpoint.', null, 404);
+    if (!$handler) respond(false, 'Endpoint not found.', null, 404);
     is_callable($handler) && !is_array($handler) ? $handler() : (new $handler[0])->{$handler[1]}();
 } catch (Throwable $e) {
     error_log($e);
-    respond(false, 'May error sa server.', env('APP_ENV') === 'local' ? $e->getMessage() : null, 500);
+    respond(false, 'A server error occurred.', env('APP_ENV') === 'local' ? $e->getMessage() : null, 500);
 }

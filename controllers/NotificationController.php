@@ -52,7 +52,7 @@ class NotificationController
     {
         $u = $this->viewer();
         $id = (int) (body()['last_seen_id'] ?? 0);
-        if ($id < 0) respond(false, 'Maling request.', null, 422);
+        if ($id < 0) respond(false, 'Invalid request.', null, 422);
         $this->db->prepare(
             'INSERT INTO user_notification_state (user_id, last_seen_id) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE last_seen_id = GREATEST(last_seen_id, VALUES(last_seen_id))')
@@ -65,7 +65,7 @@ class NotificationController
     {
         $u = $this->viewer();
         $id = (int) (body()['id'] ?? 0);
-        if ($id <= 0) respond(false, 'Maling request.', null, 422);
+        if ($id <= 0) respond(false, 'Invalid request.', null, 422);
         $this->db->prepare(
             'INSERT IGNORE INTO user_notification_hidden (user_id, change_id)
              SELECT ?, id FROM product_changes WHERE id = ?')

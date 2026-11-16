@@ -44,18 +44,18 @@ class AuthController
         $pass = $d['password'] ?? '';
         $role = $d['role'] ?? 'customer';
 
-        if ($name === '') respond(false, 'Ilagay ang buong pangalan.', null, 422);
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(false, 'Mali ang email.', null, 422);
-        if (!validPassword($pass)) respond(false, 'Password: 8+ characters, may letra at numero.', null, 422);
-        if (!in_array($role, ['customer', 'store_owner'], true)) respond(false, 'Maling role.', null, 422);
+        if ($name === '') respond(false, 'Please enter your full name.', null, 422);
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(false, 'Please enter a valid email address.', null, 422);
+        if (!validPassword($pass)) respond(false, 'Password must be at least 8 characters and include a letter and a number.', null, 422);
+        if (!in_array($role, ['customer', 'store_owner'], true)) respond(false, 'Invalid role.', null, 422);
         // phone: kailangan lang ng store owner; optional sa viewer (customer)
         if ($role === 'store_owner' ? !validPhone($phone) : ($phone !== '' && !validPhone($phone))) {
-            respond(false, 'Mali ang phone number (09XXXXXXXXX).', null, 422);
+            respond(false, 'Invalid phone number. Use the format 09XXXXXXXXX.', null, 422);
         }
 
         $st = $this->db->prepare('SELECT id FROM users WHERE email = ?');
         $st->execute([$email]);
-        if ($st->fetch()) respond(false, 'May account na gamit ang email na ito.', null, 409);
+        if ($st->fetch()) respond(false, 'An account with this email already exists.', null, 409);
 
         // Walang phone ang viewer (customer)
         if ($role === 'customer') $phone = '';
@@ -64,7 +64,7 @@ class AuthController
         $id = (int) $this->db->lastInsertId();
         $st = $this->db->prepare('SELECT * FROM users WHERE id = ?');
         $st->execute([$id]);
-        respond(true, 'Nakagawa na ng account.', $this->issueTokens($st->fetch()), 201);
+        respond(true, 'Account created successfully.', $this->issueTokens($st->fetch()), 201);
     }
 
     public function login(): void
@@ -76,23 +76,23 @@ class AuthController
         $st = $this->db->prepare('SELECT * FROM users WHERE email = ?');
         $st->execute([$email]);
         $u = $st->fetch();
-        if (!$u) respond(false, 'Mali ang email o password.', null, 401);
+        if (!$u) respond(false, 'Incorrect email or password.', null, 401);
 
         if ($u['locked_until'] && strtotime($u['locked_until']) > time()) {
             $mins = (int) ceil((strtotime($u['locked_until']) - time()) / 60);
-            respond(false, "Naka-lock ang account. Subukan ulit pagkalipas ng $mins minuto.", ['locked' => true], 423);
+            respond(false, "Your account is locked. Please try again in $mins minute(s).", ['locked' => true], 423);
         }
-        if ($u['status'] === 'suspended') respond(false, 'Naka-suspend ang account na ito.', null, 403);
+        if ($u['status'] === 'suspended') respond(false, 'This account has been suspended.', null, 403);
 
         if (!password_verify($pass, $u['password_hash'])) {
             $fails = $u['failed_logins'] + 1;
             if ($fails >= 5) {
                 $this->db->prepare('UPDATE users SET failed_logins = 0, locked_until = ? WHERE id = ?')
                     ->execute([date('Y-m-d H:i:s', time() + 15 * 60), $u['id']]);
-                respond(false, 'Masyadong maraming maling subok. Naka-lock ng 15 minuto.', ['locked' => true], 423);
+                respond(false, 'Too many failed attempts. Your account is locked for 15 minutes.', ['locked' => true], 423);
             }
             $this->db->prepare('UPDATE users SET failed_logins = ? WHERE id = ?')->execute([$fails, $u['id']]);
-            respond(false, 'Mali ang email o password. Natitirang subok: ' . (5 - $fails), null, 401);
+            respond(false, 'Incorrect email or password. Attempts remaining: ' . (5 - $fails), null, 401);
         }
 
         $this->db->prepare('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?')->execute([$u['id']]);
@@ -117,8 +117,8 @@ class AuthController
     private function verifyGoogle(?string $idToken, ?string $accessToken): array
     {
         $allowed = array_filter(array_map('trim', explode(',', env('GOOGLE_CLIENT_ID', ''))));
-        if (!$allowed) respond(false, 'Hindi pa naka-set ang GOOGLE_CLIENT_ID sa .env.', null, 500);
-        $bad = fn() => respond(false, 'Hindi valid ang Google sign-in.', null, 401);
+        if (!$allowed) respond(false, 'GOOGLE_CLIENT_ID is not set in .env.', null, 500);
+        $bad = fn() => respond(false, 'Invalid Google sign-in.', null, 401);
 
         if ($idToken) {
             $i = $this->googleGet('https://oauth2.googleapis.com/tokeninfo?id_token=' . urlencode($idToken));
@@ -142,7 +142,7 @@ class AuthController
                 'verified' => !empty($u['email_verified']),
             ];
         }
-        respond(false, 'Walang Google token.', null, 422);
+        respond(false, 'Missing Google token.', null, 422);
     }
 
     /** POST /auth/google - Continue with Google (login o register). */
@@ -150,7 +150,7 @@ class AuthController
     {
         $d = body();
         $g = $this->verifyGoogle($d['id_token'] ?? null, $d['access_token'] ?? null);
-        if ($g['email'] === '' || !$g['verified']) respond(false, 'Hindi verified ang Google email mo.', null, 403);
+        if ($g['email'] === '' || !$g['verified']) respond(false, 'Your Google email is not verified.', null, 403);
 
         // 1) kilala na ang google_id  2) may account na sa email (i-link)  3) bagong account
         $st = $this->db->prepare('SELECT * FROM users WHERE google_id = ?');
@@ -170,7 +170,7 @@ class AuthController
             // Bagong account: kailangang piliin ng user ang role (hindi pwedeng admin)
             $role = $d['role'] ?? null;
             if (!in_array($role, ['customer', 'store_owner'], true)) {
-                respond(true, 'Piliin ang role.', ['needs_role' => true]);
+                respond(true, 'Please choose a role.', ['needs_role' => true]);
             }
             $name = $g['name'] !== '' ? $g['name'] : explode('@', $g['email'])[0];
             $this->db->prepare('INSERT INTO users (full_name,email,password_hash,role,google_id) VALUES (?,?,?,?,?)')
@@ -180,7 +180,7 @@ class AuthController
             $u = $st->fetch();
         }
 
-        if ($u['status'] === 'suspended') respond(false, 'Naka-suspend ang account na ito.', null, 403);
+        if ($u['status'] === 'suspended') respond(false, 'This account has been suspended.', null, 403);
         respond(true, 'Login successful.', $this->issueTokens($u));
     }
 
@@ -190,13 +190,13 @@ class AuthController
         $st = $this->db->prepare('SELECT * FROM refresh_tokens WHERE token_hash = ? AND revoked = 0 AND expires_at > NOW()');
         $st->execute([hash('sha256', $token)]);
         $row = $st->fetch();
-        if (!$row) respond(false, 'Expired na ang session.', null, 401);
+        if (!$row) respond(false, 'Your session has expired.', null, 401);
 
         $this->db->prepare('UPDATE refresh_tokens SET revoked = 1 WHERE id = ?')->execute([$row['id']]);
         $st = $this->db->prepare('SELECT * FROM users WHERE id = ? AND status = "active"');
         $st->execute([$row['user_id']]);
         $u = $st->fetch();
-        if (!$u) respond(false, 'Hindi na available ang account.', null, 401);
+        if (!$u) respond(false, 'This account is no longer available.', null, 401);
         respond(true, 'Refreshed.', $this->issueTokens($u));
     }
 
@@ -204,7 +204,7 @@ class AuthController
     {
         $token = body()['refresh_token'] ?? '';
         $this->db->prepare('UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?')->execute([hash('sha256', $token)]);
-        respond(true, 'Naka-logout na.');
+        respond(true, 'Logged out.');
     }
 
     public function me(): void
@@ -216,7 +216,7 @@ class AuthController
 
     private function profileRow(int $id): array
     {
-        $st = $this->db->prepare('SELECT id, full_name, email, phone, role, avatar_url, (google_id IS NOT NULL) AS google_linked, created_at FROM users WHERE id = ?');
+        $st = $this->db->prepare('SELECT id, full_name, email, phone, role, (google_id IS NOT NULL) AS google_linked, created_at FROM users WHERE id = ?');
         $st->execute([$id]);
         $r = $st->fetch();
         $r['id'] = (int) $r['id'];
@@ -258,67 +258,16 @@ class AuthController
         respond(true, 'Profile updated.', $this->profileRow((int) $u['id']));
     }
 
-    // ------------------------------------------------------------ avatar
-    private function avatarDir(): string { return dirname(__DIR__) . '/uploads/avatars'; }
-
-    /** Burahin ang lumang avatar file (sa uploads/avatars lang). */
-    private function deleteAvatarFile(?string $rel): void
-    {
-        if (!$rel || strpos($rel, 'uploads/avatars/') !== 0) return;
-        $f = $this->avatarDir() . '/' . basename($rel);
-        if (is_file($f)) @unlink($f);
-    }
-
-    /**
-     * POST /auth/avatar  { image: <base64> }  -> ilagay/palitan ang profile picture
-     *                    { remove: true }      -> tanggalin ang picture
-     * Para sa lahat ng role (customer, store_owner, admin).
-     */
-    public function updateAvatar(): void
-    {
-        $u = Auth::user();
-        $id = (int) $u['id'];
-        $d = body();
-
-        $st = $this->db->prepare('SELECT avatar_url FROM users WHERE id = ?');
-        $st->execute([$id]);
-        $old = $st->fetchColumn() ?: null;
-
-        if (!empty($d['remove'])) {
-            $this->deleteAvatarFile($old);
-            $this->db->prepare('UPDATE users SET avatar_url = NULL WHERE id = ?')->execute([$id]);
-            respond(true, 'Profile photo removed.', $this->profileRow($id));
-        }
-
-        $b64 = preg_replace('#^data:image/\w+;base64,#', '', (string) ($d['image'] ?? ''));
-        if ($b64 === '') respond(false, 'Choose a photo first.', null, 422);
-        $bin = base64_decode($b64, true);
-        if ($bin === false || $bin === '') respond(false, 'The photo is corrupted. Try another one.', null, 422);
-        if (strlen($bin) > 2 * 1024 * 1024) respond(false, 'The photo is too large (2 MB max).', null, 422);
-        $info = @getimagesizefromstring($bin);
-        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$info['mime'] ?? ''] ?? null;
-        if (!$ext) respond(false, 'Only JPEG, PNG or WebP photos are accepted.', null, 422);
-
-        $dir = $this->avatarDir();
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) respond(false, 'Could not save the photo.', null, 500);
-        $name = $id . '_' . bin2hex(random_bytes(8)) . '.' . $ext; // bagong pangalan = hindi na-cache ang luma
-        if (file_put_contents("$dir/$name", $bin) === false) respond(false, 'Could not save the photo.', null, 500);
-
-        $this->db->prepare('UPDATE users SET avatar_url = ? WHERE id = ?')->execute(['uploads/avatars/' . $name, $id]);
-        $this->deleteAvatarFile($old);
-        respond(true, 'Profile photo updated.', $this->profileRow($id));
-    }
-
     public function changePassword(): void
     {
         $u = Auth::user();
         $d = body();
         $st = $this->db->prepare('SELECT password_hash FROM users WHERE id = ?');
         $st->execute([$u['id']]);
-        if (!password_verify($d['old_password'] ?? '', $st->fetchColumn())) respond(false, 'Mali ang lumang password.', null, 401);
-        if (!validPassword($d['new_password'] ?? '')) respond(false, 'Password: 8+ characters, may letra at numero.', null, 422);
+        if (!password_verify($d['old_password'] ?? '', $st->fetchColumn())) respond(false, 'Your current password is incorrect.', null, 401);
+        if (!validPassword($d['new_password'] ?? '')) respond(false, 'Password must be at least 8 characters and include a letter and a number.', null, 422);
         $this->db->prepare('UPDATE users SET password_hash = ? WHERE id = ?')
             ->execute([password_hash($d['new_password'], PASSWORD_DEFAULT), $u['id']]);
-        respond(true, 'Napalitan na ang password.');
+        respond(true, 'Password changed successfully.');
     }
 }

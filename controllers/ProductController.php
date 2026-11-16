@@ -51,7 +51,7 @@ class ProductController
         if ($q !== '') {
             Database::conn()->prepare('INSERT INTO search_logs (query) VALUES (?)')->execute([mb_substr($q, 0, 200)]);
         }
-        respond(true, count($rows) . ' resulta', $rows);
+        respond(true, count($rows) . ' results', $rows);
     }
 
     /** GET /catalog - every visible store with its products (one request for the viewer app). */
